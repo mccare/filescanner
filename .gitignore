@@ -1,0 +1,8 @@
+# Binaries, plugins, libs
+*.dylib
+*.so
+
+# Testing
+*.test
+*.tmp
+

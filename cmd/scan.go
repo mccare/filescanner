@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"crypto/md5"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,6 +18,16 @@ type File struct {
 	Path string
 	Size int64
 	Id   string
+	Md5  [md5.Size]byte
+}
+
+func (f *File) hasMd5() bool {
+	for i := 0; i < md5.Size; i++ {
+		if f.Md5[i] != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Go Routine structure
@@ -30,6 +42,34 @@ func connect() *pgx.Conn {
 	return conn
 }
 
+func conditionalMd5Writer(done <-chan struct{}, input <-chan File, output chan<- File) {
+	db := connect()
+	defer db.Close(context.Background())
+	for file := range input {
+		var existing int64
+		db.QueryRow(context.Background(), `select count(*) from files where size = $1`, file.Size).Scan(&existing)
+		if existing > 1 {
+			if !file.hasMd5() {
+				// need to calculated MD5 if md5 is null
+				fmt.Printf("Need to calculated MD5 %s\n", file.Path)
+				data, err := ioutil.ReadFile(file.Path)
+				if err != nil {
+					fmt.Printf("ERROR during reading of file %s", file.Path)
+				} else {
+					file.Md5 = md5.Sum(data)
+					db.Exec(context.Background(), `update files set md5 = $1 where path = $2`, file.Md5, file.Path)
+				}
+			}
+		}
+		select {
+		case output <- file:
+		case <-done:
+			fmt.Printf("Closing signal on done queue")
+			return
+		}
+	}
+}
+
 // insert the file inot the DB (if not already present) and return the File
 func insertFile(done <-chan struct{}, input <-chan File, output chan<- File) {
 	db := connect()
@@ -41,11 +81,15 @@ func insertFile(done <-chan struct{}, input <-chan File, output chan<- File) {
 			var newId uuid.UUID
 			db.QueryRow(context.Background(), `insert into files(id, path, size) values ($1, $2, $3) returning (id)`, uuid.New(), file.Path, file.Size).Scan(&newId)
 			fmt.Printf("Inserting File %s with %s", file.Path, newId)
-			select {
-			case output <- file:
-			case <-done:
-				return
-			}
+		} else {
+			var md5 [md5.Size]byte
+			db.QueryRow(context.Background(), `select md5 from files where path = $1`, file.Path).Scan(&md5)
+			file.Md5 = md5
+		}
+		select {
+		case output <- file:
+		case <-done:
+			return
 		}
 	}
 }
@@ -54,10 +98,12 @@ func insertFile(done <-chan struct{}, input <-chan File, output chan<- File) {
 func scanFolder() {
 	path := `/Users/chris/Music`
 	output := make(chan File)
+	md5Files := make(chan File)
 	insertedFile := make(chan File)
 	done := make(chan struct{})
 	numFileInserter := 5
 	var wg sync.WaitGroup
+	var fileInserterWaiter sync.WaitGroup
 
 	// security measure, if the routine fails with error/panic
 
@@ -68,24 +114,40 @@ func scanFolder() {
 				return err
 			}
 			if info.Mode().IsRegular() {
-				output <- File{path, info.Size(), ""}
+				output <- File{Path: path, Size: info.Size()}
 			}
 			return nil
 		})
 	}()
 
 	wg.Add(numFileInserter)
+	fileInserterWaiter.Add(numFileInserter)
 	for i := 0; i < numFileInserter; i++ {
 		go func() {
-			insertFile(done, output, insertedFile)
+			insertFile(done, output, md5Files)
+			wg.Done()
+			fileInserterWaiter.Done()
+		}()
+	}
+
+	go func() {
+		fileInserterWaiter.Wait()
+		close(md5Files)
+	}()
+
+	wg.Add(numFileInserter)
+	for i := 0; i < numFileInserter; i++ {
+		go func() {
+			conditionalMd5Writer(done, md5Files, insertedFile)
 			wg.Done()
 		}()
 	}
 
 	go func() {
-		for c := range insertedFile {
-			fmt.Printf("Processed file %s", c.Path)
+		for _ = range insertedFile {
 		}
+		//			fmt.Printf("Processed file %s", c.Path)
+		//		}
 	}()
 
 	wg.Wait()

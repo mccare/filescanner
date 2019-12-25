@@ -3,10 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/google/uuid"
+	"os"
+
 	"github.com/jackc/pgx/v4"
 	"github.com/spf13/cobra"
-	"os"
 )
 
 func createDatabase() {
@@ -21,12 +21,9 @@ func createDatabase() {
 		id UUID,
 		path VARCHAR UNIQUE,
 		size INT,
-		md5 VARCHAR
+		md5 UUID
 	);`)
-
-	// Example for the insert
-	uuid.New()
-	// conn.QueryRow(context.Background(), `insert into files(id, path, size) values ($1, $2, $3)`, uuid.New(), `hello`, 10)
+	conn.Exec(context.Background(), "create index on files(size)")
 }
 
 func NewInitCommand() *cobra.Command {

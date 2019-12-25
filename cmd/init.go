@@ -16,7 +16,7 @@ func createDatabase() {
 		os.Exit(1)
 	}
 	defer conn.Close(context.Background())
-	conn.Exec(context.Background(), "drop table files")
+	//	conn.Exec(context.Background(), "drop table files")
 	conn.Exec(context.Background(), `create table files ( 
 		id UUID,
 		path VARCHAR UNIQUE,

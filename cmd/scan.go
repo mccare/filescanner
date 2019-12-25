@@ -96,7 +96,7 @@ func insertFile(done <-chan struct{}, input <-chan File, output chan<- File) {
 
 // scan folder is synchronous, will return after all workers have finished
 func scanFolder() {
-	path := `/Users/chris/Music`
+	path := `/Volumes/music`
 	output := make(chan File)
 	md5Files := make(chan File)
 	insertedFile := make(chan File)

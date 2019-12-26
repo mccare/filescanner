@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4"
 	"github.com/spf13/cobra"
+	pb "github.com/cheggaaa/pb/v3"
 )
 
 type File struct {
@@ -20,6 +21,8 @@ type File struct {
 	Id   string
 	Md5  [md5.Size]byte
 }
+
+var Path string
 
 func (f *File) hasMd5() bool {
 	for i := 0; i < md5.Size; i++ {
@@ -51,7 +54,7 @@ func conditionalMd5Writer(done <-chan struct{}, input <-chan File, output chan<-
 		if existing > 1 {
 			if !file.hasMd5() {
 				// need to calculated MD5 if md5 is null
-				fmt.Printf("Need to calculated MD5 %s\n", file.Path)
+				fmt.Printf("MD5 %s\n", file.Path)
 				data, err := ioutil.ReadFile(file.Path)
 				if err != nil {
 					fmt.Printf("ERROR during reading of file %s", file.Path)
@@ -80,7 +83,7 @@ func insertFile(done <-chan struct{}, input <-chan File, output chan<- File) {
 		if existing == 0 {
 			var newId uuid.UUID
 			db.QueryRow(context.Background(), `insert into files(id, path, size) values ($1, $2, $3) returning (id)`, uuid.New(), file.Path, file.Size).Scan(&newId)
-			fmt.Printf("Inserting File %s with %s", file.Path, newId)
+			fmt.Printf("New %s with %s\n", file.Path, newId)
 		} else {
 			var md5 [md5.Size]byte
 			db.QueryRow(context.Background(), `select md5 from files where path = $1`, file.Path).Scan(&md5)
@@ -96,12 +99,14 @@ func insertFile(done <-chan struct{}, input <-chan File, output chan<- File) {
 
 // scan folder is synchronous, will return after all workers have finished
 func scanFolder() {
-	path := `/Volumes/music`
+	// just an estimate for the progress bar
+	count := 250000
+	bar := pb.StartNew(count)
 	output := make(chan File)
-	md5Files := make(chan File)
+	md5Files := make(chan File, 20000)
 	insertedFile := make(chan File)
 	done := make(chan struct{})
-	numFileInserter := 5
+	numFileInserter := 10
 	var wg sync.WaitGroup
 	var fileInserterWaiter sync.WaitGroup
 
@@ -109,11 +114,12 @@ func scanFolder() {
 
 	go func() {
 		defer close(output)
-		filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		filepath.Walk(Path, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if info.Mode().IsRegular() {
+				bar.Increment()
 				output <- File{Path: path, Size: info.Size()}
 			}
 			return nil
@@ -161,5 +167,7 @@ func NewScanCommand() *cobra.Command {
 			scanFolder()
 		},
 	}
+	cmd.Flags().StringVarP(&Path, "path", "p", "", "Path directory to scan")
+	cmd.MarkFlagRequired("path")
 	return cmd
 }

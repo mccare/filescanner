@@ -24,4 +24,6 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(NewInitCommand())
 	rootCmd.AddCommand(NewScanCommand())
+	rootCmd.AddCommand(NewQueryCommand())
+	rootCmd.AddCommand(NewExecuteCommand())
 }

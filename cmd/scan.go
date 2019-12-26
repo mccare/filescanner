@@ -9,10 +9,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v4"
-	"github.com/spf13/cobra"
 	pb "github.com/cheggaaa/pb/v3"
+	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 )
 
 type File struct {
@@ -23,6 +22,7 @@ type File struct {
 }
 
 var Path string
+var Checkdb bool
 
 func (f *File) hasMd5() bool {
 	for i := 0; i < md5.Size; i++ {
@@ -36,17 +36,8 @@ func (f *File) hasMd5() bool {
 // Go Routine structure
 //   scanFolder -> send paths/info Fan out -> insertFile (check if existing, insert, check for duplicate, if yes) -> FileMD5Writer
 
-func connect() *pgx.Conn {
-	conn, err := pgx.Connect(context.Background(), "postgresql://chris:cvdl@localhost/filescanner")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to connection to database: %v\n", err)
-		os.Exit(1)
-	}
-	return conn
-}
-
 func conditionalMd5Writer(done <-chan struct{}, input <-chan File, output chan<- File) {
-	db := connect()
+	db := DBConnect()
 	defer db.Close(context.Background())
 	for file := range input {
 		var existing int64
@@ -75,7 +66,7 @@ func conditionalMd5Writer(done <-chan struct{}, input <-chan File, output chan<-
 
 // insert the file inot the DB (if not already present) and return the File
 func insertFile(done <-chan struct{}, input <-chan File, output chan<- File) {
-	db := connect()
+	db := DBConnect()
 	defer db.Close(context.Background())
 	for file := range input {
 		var existing int64
@@ -159,15 +150,71 @@ func scanFolder() {
 	wg.Wait()
 }
 
+func deleteFile(input <-chan uuid.UUID) {
+	db := DBConnect()
+	defer db.Close(context.Background())
+	for id := range input {
+		_, err := db.Exec(context.Background(), "update files set deleted = true where id = $1", id)
+		if err != nil {
+			fmt.Println("Error during update", err)
+			os.Exit(1)
+		}
+	}
+}
+
+func scanDB() {
+	var wg sync.WaitGroup
+
+	db := DBConnect()
+	defer db.Close(context.Background())
+
+	var rowCount int
+	filesToDelete := make(chan uuid.UUID)
+	defer close(filesToDelete)
+
+	wg.Add(1)
+	go func() {
+		deleteFile(filesToDelete)
+		wg.Done()
+	}()
+
+	db.QueryRow(context.Background(), `select count(*) from files where path like $1 and deleted is null`, Path+`%`).Scan(&rowCount)
+
+	bar := pb.StartNew(rowCount)
+
+	rows, err := db.Query(context.Background(), "select path, id from files where path like $1", Path+"%")
+	if err != nil {
+		fmt.Println("Error during query")
+		os.Exit(1)
+	}
+	for rows.Next() {
+		bar.Increment()
+		var path string
+		var id uuid.UUID
+		rows.Scan(&path, &id)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			fmt.Printf("Does not exist %s\n", path)
+			filesToDelete <- id
+		}
+	}
+	close(filesToDelete)
+	wg.Wait()
+}
+
 func NewScanCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scan",
 		Short: "scan a folder",
 		Run: func(cmd *cobra.Command, args []string) {
-			scanFolder()
+			if !Checkdb {
+				scanFolder()
+			} else {
+				scanDB()
+			}
 		},
 	}
 	cmd.Flags().StringVarP(&Path, "path", "p", "", "Path directory to scan")
+	cmd.Flags().BoolVarP(&Checkdb, "checkdb", "c", false, "scan the database and see if the files still exist")
 	cmd.MarkFlagRequired("path")
 	return cmd
 }

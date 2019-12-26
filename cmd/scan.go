@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	pb "github.com/cheggaaa/pb/v3"
+	"github.com/dhowden/tag"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
@@ -23,6 +24,7 @@ type File struct {
 
 var Path string
 var Checkdb bool
+var ScanTags bool
 
 func (f *File) hasMd5() bool {
 	for i := 0; i < md5.Size; i++ {
@@ -201,20 +203,60 @@ func scanDB() {
 	wg.Wait()
 }
 
+func scanTags() {
+	db := DBConnect()
+	defer db.Close(context.Background())
+
+	var rowCount int
+
+	db.QueryRow(context.Background(), `select count(*) from music_files where path like $1`, Path+`%`).Scan(&rowCount)
+	bar := pb.StartNew(rowCount)
+	rows, err := db.Query(context.Background(), "select path, id from music_files where path like $1", Path+"%")
+	if err != nil {
+		fmt.Println("Error during query")
+		os.Exit(1)
+	}
+	for rows.Next() {
+		bar.Increment()
+		var path string
+		var id uuid.UUID
+		rows.Scan(&path, &id)
+		f, err := os.Open(path)
+		if err != nil {
+			fmt.Printf("error loading file: %v", err)
+			continue
+		}
+		m, err := tag.ReadFrom(f)
+		if err != nil {
+			fmt.Printf("error reading file: %v\n", err)
+			continue
+		}
+		fmt.Printf("   Album:  %v\n", m.Album())
+		fmt.Printf("   Artist: %v\n", m.Artist())
+		fmt.Printf("   Title:  %v\n", m.Title())
+	}
+
+}
+
 func NewScanCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scan",
 		Short: "scan a folder",
 		Run: func(cmd *cobra.Command, args []string) {
-			if !Checkdb {
-				scanFolder()
-			} else {
+			if Checkdb {
 				scanDB()
+				return
 			}
+			if ScanTags {
+				scanTags()
+				return
+			}
+			scanFolder()
 		},
 	}
 	cmd.Flags().StringVarP(&Path, "path", "p", "", "Path directory to scan")
 	cmd.Flags().BoolVarP(&Checkdb, "checkdb", "c", false, "scan the database and see if the files still exist")
+	cmd.Flags().BoolVarP(&ScanTags, "scantags", "s", false, "scan the files for ID3 tags")
 	cmd.MarkFlagRequired("path")
 	return cmd
 }

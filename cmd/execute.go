@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	pb "github.com/cheggaaa/pb/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +42,10 @@ func execute(executer Executioner) {
 			break
 		}
 	}
+	bar := pb.StartNew(len(lines))
+
 	for _, i := range lines {
+		bar.Increment()
 		executer(i)
 	}
 }

@@ -16,7 +16,13 @@ func createDatabase() {
 		size INT,
 		md5 UUID,
 		deleted bool default false,
-		extension varchar
+		extension varchar,
+		id3_album varchar,
+		id3_album_artist varchar,
+		id3_title varchar,
+		id3_artist varchar,
+		id3_composer varchar,
+		id3_scanned bool default false
 	);`)
 	conn.Exec(context.Background(), "create index on files(size)")
 }

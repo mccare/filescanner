@@ -155,6 +155,7 @@ func deleteFile(input <-chan uuid.UUID) {
 	defer db.Close(context.Background())
 	for id := range input {
 		_, err := db.Exec(context.Background(), "update files set deleted = true where id = $1", id)
+		fmt.Println("Deleting", id)
 		if err != nil {
 			fmt.Println("Error during update", err)
 			os.Exit(1)
@@ -170,7 +171,6 @@ func scanDB() {
 
 	var rowCount int
 	filesToDelete := make(chan uuid.UUID)
-	defer close(filesToDelete)
 
 	wg.Add(1)
 	go func() {
@@ -178,11 +178,11 @@ func scanDB() {
 		wg.Done()
 	}()
 
-	db.QueryRow(context.Background(), `select count(*) from files where path like $1 and deleted is null`, Path+`%`).Scan(&rowCount)
+	db.QueryRow(context.Background(), `select count(*) from files where path like $1 and not deleted `, Path+`%`).Scan(&rowCount)
 
 	bar := pb.StartNew(rowCount)
 
-	rows, err := db.Query(context.Background(), "select path, id from files where path like $1", Path+"%")
+	rows, err := db.Query(context.Background(), "select path, id from files where path like $1 and not deleted", Path+"%")
 	if err != nil {
 		fmt.Println("Error during query")
 		os.Exit(1)

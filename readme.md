@@ -1,4 +1,57 @@
- # SQL Statements
+ # Find duplicates of sound files
+
+ My first go project and the mission is, to sort through my 100,000 mp3 files in different places and find duplicates and missing files from my main library.
+
+The scan phase will populate a postgres DB with
+* filename
+* size
+* md5 hash
+* ID3 tags 
+
+MD5 hash is only calculated if there is a file with the same size already in the DB.
+
+# Usage
+
+## Setup
+
+* `brew install postgres`
+* create your files db
+* edit code and change the postgres URL (the user is your unix user)
+* compile and 
+* `filescanner init`
+
+## Usage
+
+### Read in all files
+```
+filescanner scan -p <path>
+```
+Will populate the DB with the files and if necessary their MD5 hashes. You need to run this twice (since the MD5 generation is lazy and only will be kicked of for the current file)
+
+### Scan the ID Tags
+```
+filescanner scan -p <path> -s
+```
+Will read and fill the ID tags. If they already have been scanned the file will be skipped.
+
+### Sync the DB with the Filesystem
+If you delete something on the filesystem, resync the db with
+```
+filescanner scan -p <path> -c
+```
+
+# Finding duplicates
+
+This is a manual process. Some SQL statements are below. First steps to automate some things are in query.go. You can delete/process files with execute.go. 
+
+# Tech I liked
+* Cobra for building the command line (http://github.com/spf13/cobra)
+* ID3 Tag reader (http://github.com/dhowden/tag)
+* PGX Postgres Driver (github.com/cheggaaa/pb/v3)
+* Concurrency with channels (see scan.go)
+
+ 
+## SQL Statements
 
   * SQL to extract file extension
     `update files f set extension =  ( select lower((regexp_matches(f.path,'\.(\w+)$'))[1]) );`
@@ -6,7 +59,6 @@
     `select extension, count(*) from files group by extension having count(*) > 10 order by count(*);`
   * Create music file view:
     `create or replace view music_files as select * from files where extension in ( 'm4b', 'm4p', 'm4a', 'mp3', 'ogg') and not deleted`
-
 
 ## Find Duplicates in different locations (via SQL)
   * Find duplicates in different directories 

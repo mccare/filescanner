@@ -62,13 +62,45 @@ This is a manual process. Some SQL statements are below. First steps to automate
 
 ## Find Duplicates in different locations (via SQL)
   * Find duplicates in different directories 
-    `select path from music_files where path like '/Volumes/music/from_harddisks/%' and md5 in (select md5 from music_files where path like '/Volumes/music/CVDL/%') and md5 is not null`
-    `select path from music_files where path like '/Volumes/music/from_harddisks/%' and md5 in (select md5 from music_files where path like '/Users/chris/Music/%') and md5 is not null`
+    ```sql
+    select path 
+      from music_files 
+      where 
+        path like '/Volumes/music/from_harddisks/%' 
+        and md5 in 
+          (select md5 from music_files where path like '/Volumes/music/CVDL/%') 
+        and md5 is not null
+    ```
   * Find duplicates in one directory
-    * `select path, md5 from music_files where path like '/Users/chris/Music/%' and md5 in (select md5 from music_files where path like '/Users/chris/Music/%'  group by md5 having count(id) > 1) order by md5`
+    ```sql
+      select path, md5 
+        from music_files 
+        where 
+          path like '/Users/chris/Music/%' 
+          and md5 in (select md5 from music_files where path like '/Users/chris/Music/%'  group by md5 having count(id) > 1) 
+        order by md5
+    ```
     
 ## Find Missing files
   * Files with MD5
   `select path from music_files where path like '/Volumes/music/from_harddisks/%' and md5 not in (select md5 from music_files where path like '/Users/chris/Music/%') and md5 is not null `
   * Find unique files (having no md5 means no other file with the same size exists and therefore must  be unique)
     `select count(path), md5 is null from music_files where path like '/Volumes/music/%' group by md5 is null;`
+
+## Find duplicates by size and same ID3 tags
+* 
+```sql
+  select f2.path from 
+      files f1, files f2 
+    where 
+      f1.size = f2.size 
+      and f1.id != f2.id 
+      and f1.path like '/Users/chris/Music/%'
+      and f2.path like '/Volumes/music/from_harddisks/%'
+      and f1.id3_artist = f2.id3_artist
+      and f1.id3_album = f2.id3_album
+      and f1.id3_title = f2.id3_title
+      and f1.id3_album_artist = f2.id3_album_artist
+      and (f1.id3_title is not null or f1.id3_album is not null or f1.id3_artist is not null or f1.id3_album_artist is not null)
+    ;
+```

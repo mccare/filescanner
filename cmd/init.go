@@ -9,6 +9,7 @@ import (
 func createDatabase() {
 	conn := DBConnect()
 	defer conn.Close(context.Background())
+	//	conn.Exec(context.Background(), "drop view music_files")
 	//	conn.Exec(context.Background(), "drop table files")
 	conn.Exec(context.Background(), `create table files ( 
 		id UUID,
@@ -25,6 +26,7 @@ func createDatabase() {
 		id3_scanned bool default false
 	);`)
 	conn.Exec(context.Background(), "create index on files(size)")
+	conn.Exec(context.Background(), `create or replace view music_files as select * from files where extension in ( 'm4b', 'm4p', 'm4a', 'mp3', 'ogg') and not deleted`)
 }
 
 func NewInitCommand() *cobra.Command {

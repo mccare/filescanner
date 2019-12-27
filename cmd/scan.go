@@ -16,10 +16,11 @@ import (
 )
 
 type File struct {
-	Path string
-	Size int64
-	Id   string
-	Md5  [md5.Size]byte
+	Path       string
+	Size       int64
+	Id         uuid.UUID
+	Md5        [md5.Size]byte
+	ID3Scanned bool
 }
 
 var Path string
@@ -152,39 +153,43 @@ func scanFolder() {
 	wg.Wait()
 }
 
-func deleteFile(input <-chan uuid.UUID) {
+func scanForDelete(input <-chan File) {
 	db := DBConnect()
 	defer db.Close(context.Background())
-	for id := range input {
-		_, err := db.Exec(context.Background(), "update files set deleted = true where id = $1", id)
-		fmt.Println("Deleting", id)
-		if err != nil {
-			fmt.Println("Error during update", err)
-			os.Exit(1)
+	for file := range input {
+		if _, err := os.Stat(file.Path); os.IsNotExist(err) {
+			fmt.Printf("Does not exist %s\n", file.Path)
+			_, err := db.Exec(context.Background(), "update files set deleted = true where id = $1", file.Id)
+			if err != nil {
+				fmt.Println("Error during update", err)
+				os.Exit(1)
+			}
 		}
 	}
 }
 
-func scanDB() {
+func scanDB(processor func(<-chan File), tableName string, processors int) {
 	var wg sync.WaitGroup
 
 	db := DBConnect()
 	defer db.Close(context.Background())
 
 	var rowCount int
-	filesToDelete := make(chan uuid.UUID)
+	filePipeline := make(chan File)
 
-	wg.Add(1)
-	go func() {
-		deleteFile(filesToDelete)
-		wg.Done()
-	}()
+	for i := 1; i < processors; i++ {
+		wg.Add(1)
+		go func() {
+			processor(filePipeline)
+			wg.Done()
+		}()
+	}
 
-	db.QueryRow(context.Background(), `select count(*) from files where path like $1 and not deleted `, Path+`%`).Scan(&rowCount)
+	db.QueryRow(context.Background(), `select count(*) from `+tableName+` where path like $1 and not deleted `, Path+`%`).Scan(&rowCount)
 
 	bar := pb.StartNew(rowCount)
 
-	rows, err := db.Query(context.Background(), "select path, id from files where path like $1 and not deleted", Path+"%")
+	rows, err := db.Query(context.Background(), `select path, id, id3_scanned from `+tableName+` where path like $1 and not deleted`, Path+"%")
 	if err != nil {
 		fmt.Println("Error during query")
 		os.Exit(1)
@@ -193,49 +198,48 @@ func scanDB() {
 		bar.Increment()
 		var path string
 		var id uuid.UUID
-		rows.Scan(&path, &id)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			fmt.Printf("Does not exist %s\n", path)
-			filesToDelete <- id
-		}
+		var id3Scanned bool
+		rows.Scan(&path, &id, &id3Scanned)
+		filePipeline <- File{Path: path, Id: id, ID3Scanned: id3Scanned}
 	}
-	close(filesToDelete)
+	close(filePipeline)
 	wg.Wait()
 }
 
-func scanTags() {
+func scanTags(input <-chan File) {
 	db := DBConnect()
 	defer db.Close(context.Background())
+	for file := range input {
 
-	var rowCount int
-
-	db.QueryRow(context.Background(), `select count(*) from music_files where path like $1`, Path+`%`).Scan(&rowCount)
-	bar := pb.StartNew(rowCount)
-	rows, err := db.Query(context.Background(), "select path, id from music_files where path like $1", Path+"%")
-	if err != nil {
-		fmt.Println("Error during query")
-		os.Exit(1)
-	}
-	for rows.Next() {
-		bar.Increment()
-		var path string
-		var id uuid.UUID
-		rows.Scan(&path, &id)
-		f, err := os.Open(path)
-		if err != nil {
-			fmt.Printf("error loading file: %v", err)
+		if file.ID3Scanned {
 			continue
 		}
-		m, err := tag.ReadFrom(f)
-		if err != nil {
-			fmt.Printf("error reading file: %v\n", err)
-			continue
-		}
-		fmt.Printf("   Album:  %v\n", m.Album())
-		fmt.Printf("   Artist: %v\n", m.Artist())
-		fmt.Printf("   Title:  %v\n", m.Title())
-	}
 
+		func() {
+			f, err := os.Open(file.Path)
+			if err != nil {
+				fmt.Printf("error loading file: %v", err)
+				return
+			}
+			defer f.Close()
+
+			m, err := tag.ReadFrom(f)
+			if err != nil {
+				fmt.Printf("error reading file: %v\n", err)
+				return
+			}
+
+			//			fmt.Printf("Artist: %v Title %v Path %v\n", m.Artist(), m.Title(), file.Path)
+			_, err = db.Exec(context.Background(),
+				`update files 
+					set id3_album = $1, id3_album_artist = $2, id3_artist = $3, id3_title = $4, id3_composer = $5, id3_scanned = true
+					where id = $6`,
+				m.Album(), m.AlbumArtist(), m.Artist(), m.Title(), m.Composer(), file.Id)
+			if err != nil {
+				fmt.Printf("Error during update on %v error %v", file.Path, err)
+			}
+		}()
+	}
 }
 
 func NewScanCommand() *cobra.Command {
@@ -244,11 +248,11 @@ func NewScanCommand() *cobra.Command {
 		Short: "scan a folder",
 		Run: func(cmd *cobra.Command, args []string) {
 			if Checkdb {
-				scanDB()
+				scanDB(scanForDelete, "files", 3)
 				return
 			}
 			if ScanTags {
-				scanTags()
+				scanDB(scanTags, "music_files", 6)
 				return
 			}
 			scanFolder()

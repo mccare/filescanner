@@ -25,7 +25,7 @@ func query() {
 	defer file.Close()
 
 	reader := bufio.NewReader(file)
-	query, err := reader.ReadString('\n')
+	query, err := reader.ReadString(';')
 
 	fmt.Printf("Running Query %s\n", query)
 

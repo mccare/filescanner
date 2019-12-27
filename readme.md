@@ -55,6 +55,9 @@ This is a manual process. Some SQL statements are below. First steps to automate
 
   * SQL to extract file extension
     `update files f set extension =  ( select lower((regexp_matches(f.path,'\.(\w+)$'))[1]) );`
+    `update files f set filename =  ( select lower((regexp_matches(f.path,'\/([^\/]+)$'))[1]) );`
+  * SQL extra filename
+    `
   * List of file types
     `select extension, count(*) from files group by extension having count(*) > 10 order by count(*);`
   * Create music file view:
@@ -83,12 +86,24 @@ This is a manual process. Some SQL statements are below. First steps to automate
     
 ## Find Missing files
   * Files with MD5
-  `select path from music_files where path like '/Volumes/music/from_harddisks/%' and md5 not in (select md5 from music_files where path like '/Users/chris/Music/%') and md5 is not null `
+```sql
+    select path from music_files 
+    where 
+      path like '/Volumes/music/from_harddisks/%' 
+      and md5 not in (select md5 from music_files where path like '/Users/chris/Music/%') 
+      and md5 is not null 
+```
   * Find unique files (having no md5 means no other file with the same size exists and therefore must  be unique)
-    `select count(path), md5 is null from music_files where path like '/Volumes/music/%' group by md5 is null;`
+```sql
+    select count(path), md5 is null 
+      from music_files 
+      where 
+        path like '/Volumes/music/%' 
+      group by md5 is null;
+```
 
 ## Find duplicates by size and same ID3 tags
-* 
+
 ```sql
   select f2.path from 
       files f1, files f2 
@@ -102,5 +117,21 @@ This is a manual process. Some SQL statements are below. First steps to automate
       and f1.id3_title = f2.id3_title
       and f1.id3_album_artist = f2.id3_album_artist
       and (f1.id3_title is not null or f1.id3_album is not null or f1.id3_artist is not null or f1.id3_album_artist is not null)
+    ;
+```
+
+```sql
+  select f2.path from 
+      files f1, files f2 
+    where 
+      f1.path like '/Users/chris/Music/%'
+      and f2.path like '/Volumes/music/from_harddisks/%'
+      and f1.id3_artist = f2.id3_artist
+      and f1.id3_album = f2.id3_album
+      and f1.id3_title = f2.id3_title
+      and (length(f1.id3_title) > 1)
+      and (length(f1.id3_album) > 1)
+      and (length(f1.id3_artist) > 1)
+      and (f1.filename = f2.filename)
     ;
 ```

@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 
 	pb "github.com/cheggaaa/pb/v3"
@@ -21,6 +22,8 @@ type File struct {
 	Id         uuid.UUID
 	Md5        [md5.Size]byte
 	ID3Scanned bool
+	Extension  string
+	Filename   string
 }
 
 var Path string
@@ -67,6 +70,20 @@ func conditionalMd5Writer(done <-chan struct{}, input <-chan File, output chan<-
 	}
 }
 
+func filenameExtension(file *File) {
+	extensionRe := regexp.MustCompile(`\.(\w+)$`)
+	filenameRe := regexp.MustCompile(`/([^/]+)$`)
+
+	for match := filenameRe.FindStringSubmatch(file.Path); match != nil; {
+		file.Filename = match[1]
+		break
+	}
+	for match := extensionRe.FindStringSubmatch(file.Path); match != nil; {
+		file.Extension = match[1]
+		break
+	}
+}
+
 // insert the file inot the DB (if not already present) and return the File
 func insertFile(done <-chan struct{}, input <-chan File, output chan<- File) {
 	db := DBConnect()
@@ -75,9 +92,11 @@ func insertFile(done <-chan struct{}, input <-chan File, output chan<- File) {
 		var existing int64
 		db.QueryRow(context.Background(), `select count(*) from files where path = $1`, file.Path).Scan(&existing)
 		if existing == 0 {
-			var newId uuid.UUID
-			db.QueryRow(context.Background(), `insert into files(id, path, size) values ($1, $2, $3) returning (id)`, uuid.New(), file.Path, file.Size).Scan(&newId)
-			fmt.Printf("New %s with %s\n", file.Path, newId)
+			var newID uuid.UUID
+			db.QueryRow(context.Background(), `insert into files(id, path, size, filename, extension) 
+				values ($1, $2, $3, $4, $5) returning (id)`,
+				uuid.New(), file.Path, file.Size, file.Filename, file.Extension).Scan(&newID)
+			fmt.Printf("New %s with %s\n", file.Path, newID)
 		} else {
 			var md5 [md5.Size]byte
 			db.QueryRow(context.Background(), `select md5 from files where path = $1`, file.Path).Scan(&md5)
@@ -114,7 +133,9 @@ func scanFolder() {
 			}
 			if info.Mode().IsRegular() {
 				bar.Increment()
-				output <- File{Path: path, Size: info.Size()}
+				file := File{Path: path, Size: info.Size()}
+				filenameExtension(&file)
+				output <- file
 			}
 			return nil
 		})
@@ -176,7 +197,6 @@ func scanDB(processor func(<-chan File), tableName string, processors int) {
 
 	var rowCount int
 	filePipeline := make(chan File)
-
 	for i := 1; i < processors; i++ {
 		wg.Add(1)
 		go func() {
@@ -189,21 +209,24 @@ func scanDB(processor func(<-chan File), tableName string, processors int) {
 
 	bar := pb.StartNew(rowCount)
 
-	rows, err := db.Query(context.Background(), `select path, id, id3_scanned from `+tableName+` where path like $1 and not deleted`, Path+"%")
+	rows, err := db.Query(context.Background(), `select path, id, id3_scanned, extension, filename from `+tableName+` where path like $1 and not deleted`, Path+"%")
 	if err != nil {
 		fmt.Println("Error during query")
 		os.Exit(1)
 	}
 	for rows.Next() {
 		bar.Increment()
-		var path string
-		var id uuid.UUID
-		var id3Scanned bool
-		rows.Scan(&path, &id, &id3Scanned)
-		filePipeline <- File{Path: path, Id: id, ID3Scanned: id3Scanned}
+		file := File{}
+		rows.Scan(&file.Path, &file.Id, &file.ID3Scanned, &file.Extension, &file.Filename)
+		filePipeline <- file
+	}
+	if rows.Err() != nil {
+		fmt.Println("Error during processing ", rows.Err())
 	}
 	close(filePipeline)
+	fmt.Println("Waiting for all my children")
 	wg.Wait()
+	fmt.Println("Now exiting")
 }
 
 func scanTags(input <-chan File) {
@@ -229,7 +252,6 @@ func scanTags(input <-chan File) {
 				return
 			}
 
-			//			fmt.Printf("Artist: %v Title %v Path %v\n", m.Artist(), m.Title(), file.Path)
 			_, err = db.Exec(context.Background(),
 				`update files 
 					set id3_album = $1, id3_album_artist = $2, id3_artist = $3, id3_title = $4, id3_composer = $5, id3_scanned = true
@@ -252,6 +274,7 @@ func NewScanCommand() *cobra.Command {
 				return
 			}
 			if ScanTags {
+				fmt.Printf("Scnaning tags")
 				scanDB(scanTags, "music_files", 6)
 				return
 			}

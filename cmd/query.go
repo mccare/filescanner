@@ -15,8 +15,10 @@ var Directory string
 var Duplicate bool
 
 func query() {
-	db := DBConnect()
-	defer db.Close(context.Background())
+	db := DBConnectionPool.Get()
+	defer func() {
+		DBConnectionPool.Release(db)
+	}()
 
 	file, err := os.Open("query.txt")
 	if err != nil {
@@ -45,8 +47,11 @@ func query() {
 }
 
 func findDuplicates() {
-	db := DBConnect()
-	defer db.Close(context.Background())
+	db := DBConnectionPool.Get()
+	defer func() {
+		DBConnectionPool.Release(db)
+	}()
+
 	rows, err := db.Query(context.Background(),
 		"select path, md5 from music_files where path like $1 and md5 in (select md5 from music_files where path like $2 group by md5 having count(id) > 1) order by md5", Directory+"%", Directory+"%")
 	if err != nil {
@@ -71,6 +76,7 @@ func NewQueryCommand() *cobra.Command {
 		Use:   "query",
 		Short: "query the DB",
 		Run: func(cmd *cobra.Command, args []string) {
+			InitDBConnectionPool()
 			if Duplicate {
 				findDuplicates()
 				return

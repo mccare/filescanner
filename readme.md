@@ -7,8 +7,8 @@ The scan phase will populate a postgres DB with
 * size
 * md5 hash
 * ID3 tags 
+* MD5 hash of only the music data (calculated by the ID3 library)
 
-MD5 hash is only calculated if there is a file with the same size already in the DB.
 
 # Usage
 

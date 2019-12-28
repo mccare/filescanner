@@ -7,8 +7,11 @@ import (
 )
 
 func createDatabase() {
-	conn := DBConnect()
-	defer conn.Close(context.Background())
+	conn := DBConnectionPool.Get()
+	defer func() {
+		DBConnectionPool.Release(conn)
+	}()
+
 	//	conn.Exec(context.Background(), "drop view music_files")
 	//	conn.Exec(context.Background(), "drop table files")
 	conn.Exec(context.Background(), `create table files ( 
@@ -35,6 +38,7 @@ func NewInitCommand() *cobra.Command {
 		Use:   "init",
 		Short: "initialize database",
 		Run: func(cmd *cobra.Command, args []string) {
+			InitDBConnectionPool()
 			createDatabase()
 		},
 	}

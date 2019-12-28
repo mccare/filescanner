@@ -48,7 +48,8 @@ This is a manual process. Some SQL statements are below. First steps to automate
 * Cobra for building the command line (http://github.com/spf13/cobra)
 * ID3 Tag reader (http://github.com/dhowden/tag)
 * PGX Postgres Driver (github.com/cheggaaa/pb/v3)
-* Concurrency with channels (see scan.go)
+* Concurrency with channels (see scan.go, and Bryan Mills at Gophercon 2018, https://www.youtube.com/watch?v=5zXAHh5tJqQ)
+* Connection Pool see db.go
 
  
 ## SQL Statements
@@ -62,9 +63,11 @@ This is a manual process. Some SQL statements are below. First steps to automate
     `select extension, count(*) from files group by extension having count(*) > 10 order by count(*);`
   * Create music file view:
     `create or replace view music_files as select * from files where extension in ( 'm4b', 'm4p', 'm4a', 'mp3', 'ogg') and not deleted`
+  * Create view for heap music
+    `create or replace view backup_music_files as select * from files where extension in ( 'm4b', 'm4p', 'm4a', 'mp3', 'ogg') and not deleted and path like '/Volumes/music/from%';`
+## Find Duplicates 
 
-## Find Duplicates in different locations (via SQL)
-  * Find duplicates in different directories 
+### Find duplicates in different directories 
     ```sql
     select path 
       from music_files 
@@ -74,7 +77,7 @@ This is a manual process. Some SQL statements are below. First steps to automate
           (select md5 from music_files where path like '/Volumes/music/CVDL/%') 
         and md5 is not null
     ```
-  * Find duplicates in one directory
+## Find duplicates in one directory
     ```sql
       select path, md5 
         from music_files 
@@ -179,4 +182,7 @@ select f2.path from
       and not f1.filename like '%titel%'
     order by f2.path;
 ```
+ 
+
+
  

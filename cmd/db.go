@@ -28,6 +28,14 @@ type File struct {
 	Album       string
 }
 
+var FileExtensions = map[string]string{
+	`mp3`: `music`,
+	`ogg`: `music`,
+	`m4a`: `music`,
+	`m4b`: `music`,
+	`m4p`: `music`,
+}
+
 func (f *File) hasMd5() bool {
 	for i := 0; i < md5.Size; i++ {
 		if f.Md5[i] != 0 {
@@ -35,6 +43,11 @@ func (f *File) hasMd5() bool {
 		}
 	}
 	return false
+}
+
+func (f *File) MusicFile() bool {
+	value, found := FileExtensions[f.Extension]
+	return found && value == `music`
 }
 
 func (f *File) updateExtensionAndFilename() {

@@ -120,9 +120,11 @@ This is a manual process. Some SQL statements are below. First steps to automate
     ;
 ```
 
+## Find duplicates by filename and ID3 tags
+* Album, artist and title need to be the same (and filename)
 ```sql
   select f2.path from 
-      files f1, files f2 
+      music_files f1, music_files f2 
     where 
       f1.path like '/Users/chris/Music/%'
       and f2.path like '/Volumes/music/from_harddisks/%'
@@ -135,3 +137,46 @@ This is a manual process. Some SQL statements are below. First steps to automate
       and (f1.filename = f2.filename)
     ;
 ```
+
+* Title, Artist and filename is the same (ignore album and album artist)
+```sql
+  select f2.path from 
+      music_files f1, music_files f2 
+    where 
+      f1.path like '/Users/chris/Music/%'
+      and f2.path like '/Volumes/music/from_harddisks/%'
+      and f1.id3_artist = f2.id3_artist
+      and f1.id3_title = f2.id3_title
+      and (length(f1.id3_title) > 1)
+      and (length(f1.id3_artist) > 1)
+      and (f1.filename = f2.filename)
+    ;
+```
+
+* Title and Artist are the same 
+```sql
+  select f2.path from 
+      music_files f1, music_files f2 
+    where 
+      f1.path like '/Users/chris/Music/%'
+      and f2.path like '/Volumes/music/from_harddisks/%'
+      and f1.id3_artist = f2.id3_artist
+      and f1.id3_title = f2.id3_title
+      and (length(f1.id3_title) > 1)
+      and (length(f1.id3_artist) > 1)
+    ;
+```
+
+### Same Filename (review the list before deleting!)
+```sql
+select f2.path from 
+      music_files f1, music_files f2 
+    where 
+      f1.path like '/Users/chris/Music/%'
+      and f2.path like '/Volumes/music/from_harddisks/%'
+      and (f1.filename = f2.filename)
+      and not f1.filename  like '%intro%'
+      and not f1.filename like '%titel%'
+    order by f2.path;
+```
+ 

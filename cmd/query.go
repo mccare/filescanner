@@ -27,7 +27,7 @@ func query() {
 	reader := bufio.NewReader(file)
 	query, err := reader.ReadString(';')
 
-	fmt.Printf("Running Query %s\n", query)
+	fmt.Fprintf(os.Stderr, "Running Query %s\n", query)
 
 	rows, err := db.Query(context.Background(), query)
 	if err != nil {
@@ -38,6 +38,9 @@ func query() {
 		var path string
 		rows.Scan(&path)
 		fmt.Println(path)
+	}
+	if rows.Err() != nil {
+		fmt.Fprintln(os.Stderr, "Error during scanning", rows.Err())
 	}
 }
 

@@ -12,18 +12,18 @@ func createDatabase() {
 	//	conn.Exec(context.Background(), "drop view music_files")
 	//	conn.Exec(context.Background(), "drop table files")
 	conn.Exec(context.Background(), `create table files ( 
-		id UUID,
-		path VARCHAR UNIQUE,
+		id UUID TYPE PRIMARY_KEY,
+		path VARCHAR UNIQUE default '',
 		size INT,
-		md5 UUID,
+		md5 UUID default '00000000-0000-0000-0000-000000000000'::uuid;,
 		deleted bool default false,
 		extension varchar default '',
 		filename varchar default '',
-		id3_album varchar,
-		id3_album_artist varchar,
-		id3_title varchar,
-		id3_artist varchar,
-		id3_composer varchar,
+		id3_album varchar default '',
+		id3_album_artist varchar default '',
+		id3_title varchar default '',
+		id3_artist varchar default '',
+		id3_composer varchar default '',
 		id3_scanned bool default false
 	);`)
 	conn.Exec(context.Background(), "create index on files(size)")

@@ -112,7 +112,6 @@ func scanTagsAndUpdateDB(file File) File {
 	if !file.MusicFile() {
 		return file
 	}
-	fmt.Println("ID3 MD5 for ", file.Path)
 	f, err := os.Open(file.Path)
 	if err != nil {
 		fmt.Printf("error loading file: %v", err)
@@ -136,10 +135,13 @@ func scanTagsAndUpdateDB(file File) File {
 		DBConnectionPool.Release(db)
 	}
 
-	sum, err := tag.Sum(f)
-	if err != nil {
-		fmt.Printf("error calculating sum on %v: %v\n", file.Path, err)
-	} else {
+	if file.ID3Md5 == `` {
+		fmt.Println("Calculating ID3 MD5", file.Path)
+		sum, err := tag.Sum(f)
+		if err != nil {
+			fmt.Printf("error calculating sum on %v: %v\n", file.Path, err)
+			sum = `error`
+		}
 		db := DBConnectionPool.Get()
 		_, err = db.Exec(context.Background(),
 			`update files 

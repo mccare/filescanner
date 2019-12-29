@@ -5,7 +5,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"os"
-	"regexp"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
@@ -50,18 +50,26 @@ func (f *File) MusicFile() bool {
 	return found && value == `music`
 }
 
-func (f *File) updateExtensionAndFilename() {
-	extensionRe := regexp.MustCompile(`\.(\w+)$`)
-	filenameRe := regexp.MustCompile(`/([^/]+)$`)
+func (f *File) ArtistAlbumDirectory() []string {
+	var result []string
+	artist := f.AlbumArtist
+	if artist == `` {
+		artist = f.Artist
+		if artist == `` {
+			return result
+		}
+	}
+	if f.Album == `` {
+		return result
+	}
+	result = append(result, artist)
+	result = append(result, f.Album)
+	return result
+}
 
-	for match := filenameRe.FindStringSubmatch(f.Path); match != nil; {
-		f.Filename = strings.ToLower(match[1])
-		break
-	}
-	for match := extensionRe.FindStringSubmatch(f.Path); match != nil; {
-		f.Extension = strings.ToLower(match[1])
-		break
-	}
+func (f *File) updateExtensionAndFilename() {
+	f.Extension = filepath.Ext(f.Path)
+	f.Filename = strings.TrimSuffix(filepath.Base(f.Path), `.`+f.Extension)
 }
 
 var DBConnectionPool *Pool
@@ -73,15 +81,16 @@ type Pool struct {
 	idle chan *pgx.Conn
 }
 
+// inserts the basic values of the file, all need to be changed via updates
 func InsertFile(f File) error {
 	db := DBConnectionPool.Get()
 	defer func() {
 		DBConnectionPool.Release(db)
 	}()
 
-	_, err := db.Exec(context.Background(), `insert into files (id, filename, extension, path, id3_artist, id3_album_artist, id3_album, id3_title, id3_md5, id3_scanned, deleted, size, md5)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-		f.ID, f.Filename, f.Extension, f.Path, f.Artist, f.AlbumArtist, f.Album, f.Title, f.ID3Md5, f.ID3Scanned, f.Deleted, f.Size, f.Md5)
+	_, err := db.Exec(context.Background(), `insert into files (id, filename, extension, path)
+		values ($1, $2, $3, $4)`,
+		f.ID, f.Filename, f.Extension, f.Path)
 	if err != nil {
 		fmt.Println("Error during insert", err)
 		return err

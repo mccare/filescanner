@@ -182,7 +182,27 @@ select f2.path from
       and not f1.filename like '%titel%'
     order by f2.path;
 ```
- 
+
+
+## Moving files into a artist/album structure
+
+* Finding files that are probably part of a compilation (artists on the album more than two)
+```sql
+select f.id3_album, f.id3_artist 
+from backup_music_files f 
+where 
+  id3_album in 
+    (select id3_album 
+      from backup_music_files 
+      where 
+        id3_album != '' and 
+        id3_album_artist = '' 
+      group by id3_album 
+      having count(distinct(id3_artist)) > 2) 
+order by f.id3_album, f.id3_artist;
+```
+
+Special album names that are false results include "Greatest Hits", "Unplugged", "Live"
 
 
  

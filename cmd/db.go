@@ -36,6 +36,43 @@ var FileExtensions = map[string]string{
 	`m4p`: `music`,
 }
 
+var CompilationAlbumsHeuristic = make(chan map[string]int, 1)
+
+func init() {
+	CompilationAlbumsHeuristic <- make(map[string]int)
+}
+
+// all albums with more artists and no album artists are considered to be a compilation album. This breaks for albums like 'Greatest Hits' or 'Live' (more than one live album in my collection)
+func (f *File) isCompilation() bool {
+
+	heuristic := <-CompilationAlbumsHeuristic
+	if len(heuristic) == 0 {
+		db := DBConnectionPool.Get()
+		defer func() {
+			DBConnectionPool.Release(db)
+		}()
+		rows, err := db.Query(context.Background(), "select id3_album from music_files where id3_album != '' and id3_artist != '' group by id3_album having count(distinct(id3_artist)) > 1")
+		if err != nil {
+			fmt.Println("Error during query", err)
+			os.Exit(1)
+		}
+		for rows.Next() {
+			var album string
+			rows.Scan(&album)
+			heuristic[strings.ToLower(album)] = 1
+		}
+		// adjust the heuristic to known albums that are not compilations
+		heuristic[`greatest hits`] = 0
+		heuristic[`live`] = 0
+		heuristic[`unplugged`] = 0
+	}
+	CompilationAlbumsHeuristic <- heuristic
+	if val, ok := heuristic[strings.ToLower(f.Album)]; ok {
+		return val == 1
+	}
+	return false
+}
+
 func (f *File) hasMd5() bool {
 	for i := 0; i < md5.Size; i++ {
 		if f.Md5[i] != 0 {
@@ -53,17 +90,23 @@ func (f *File) MusicFile() bool {
 func (f *File) ArtistAlbumDirectory() []string {
 	var result []string
 	artist := f.AlbumArtist
-	if artist == `` {
-		artist = f.Artist
-		if artist == `` {
-			return result
+	if strings.TrimSpace(artist) == `` {
+		if f.isCompilation() {
+			artist = `_Compilation`
+		} else {
+			artist = f.Artist
+			if strings.TrimSpace(artist) == `` {
+				artist = `_Unknown Artist`
+			}
 		}
 	}
-	if f.Album == `` {
-		return result
+	album := f.Album
+	if strings.TrimSpace(f.Album) == `` {
+		album = `_Unknown Album`
 	}
+
 	result = append(result, artist)
-	result = append(result, f.Album)
+	result = append(result, album)
 	return result
 }
 

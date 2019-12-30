@@ -20,7 +20,7 @@ func query() {
 		DBConnectionPool.Release(db)
 	}()
 
-	file, err := os.Open("query.txt")
+	file, err := os.Open(Directory)
 	if err != nil {
 		log.Fatal(err)
 	}

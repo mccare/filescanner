@@ -26,7 +26,7 @@ The scan phase will populate a postgres DB with
 ```
 filescanner scan -p <path>
 ```
-Will populate the DB with the files and if necessary their MD5 hashes. You need to run this twice (since the MD5 generation is lazy and only will be kicked of for the current file)
+Will populate the DB with the files and if necessary their MD5 and ID3 hashes. You need to run this twice (since the MD5 generation is lazy and only will be kicked of for the current file)
 
 ### Scan the ID Tags
 ```
@@ -40,6 +40,20 @@ If you delete something on the filesystem, resync the db with
 filescanner scan -p <path> -c
 ```
 
+### Query and Move or delete
+
+I queried the DB producing a list of filenames (paths), which I then executed actions on (e.g. delete them or move them)
+* create a file query.txt with a select query for path names
+* run `filescanner query -p ./query.txt > /tmp/output`
+* inspect /tmp/output if this is a reasonable set of answers
+* run `filescanner execute -p /tmp/output -a unlink --dry-run` to e.g. remove all files 
+* edit execute.go to change the destination directory for moving commands
+  * other actions are: 
+     * moveID3: put files into Artist/Album or _Compilation/Album, a bit heuristically what goes where
+     * movePath: just move the files with the last two path components to a different directory
+     * read (just show some ID3 tags for debugging)
+
+
 # Finding duplicates
 
 This is a manual process. Some SQL statements are below. First steps to automate some things are in query.go. You can delete/process files with execute.go. 
@@ -52,19 +66,21 @@ This is a manual process. Some SQL statements are below. First steps to automate
 * Connection Pool see db.go
 
  
-## SQL Statements
+# SQL Statements
+
+## Helpful Views, other tidbits
 
   * SQL to extract file extension
     `update files f set extension =  ( select lower((regexp_matches(f.path,'\.(\w+)$'))[1]) );`
     `update files f set filename =  ( select lower((regexp_matches(f.path,'\/([^\/]+)$'))[1]) );`
-  * SQL extra filename
-    `
   * List of file types
     `select extension, count(*) from files group by extension having count(*) > 10 order by count(*);`
   * Create music file view:
     `create or replace view music_files as select * from files where extension in ( 'm4b', 'm4p', 'm4a', 'mp3', 'ogg') and not deleted`
   * Create view for heap music
     `create or replace view backup_music_files as select * from files where extension in ( 'm4b', 'm4p', 'm4a', 'mp3', 'ogg') and not deleted and path like '/Volumes/music/from%';`
+
+    
 ## Find Duplicates 
 
 ### Find duplicates in different directories 
@@ -202,7 +218,7 @@ where
 order by f.id3_album, f.id3_artist;
 ```
 
-Special album names that are false results include "Greatest Hits", "Unplugged", "Live"
+Special album names that are false results include "Greatest Hits", "Unplugged", "Live", "Best of"
 
 
  

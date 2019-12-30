@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	pb "github.com/cheggaaa/pb/v3"
@@ -15,14 +17,18 @@ import (
 
 var ExecuteFilePath string
 var Action string
+var DryRun bool
 
 type Executioner func(param string)
 
 var Executioners = map[string]Executioner{
-	"unlink": unlink,
-	"move":   move,
-	"read":   read,
+	"unlink":   unlink,
+	"moveID3":  moveID3,
+	"movePath": movePath,
+	"read":     read,
 }
+
+var TargetRootDirectory string = `/Volumes/music/untagged_music/`
 
 func read(path string) {
 	f, err := os.Open(path)
@@ -37,37 +43,71 @@ func read(path string) {
 }
 
 func unlink(path string) {
+	if DryRun {
+		fmt.Println("Removing", path)
+		return
+	}
 	err := os.Remove(path)
 	if err != nil {
 		fmt.Printf("Error removing %s: %v", path, err)
 	}
 }
 
-func move(path string) {
-	targetRootDirectory := `/Volumes/music/sorted_music/`
+func movePath(path string) {
+	moveGeneric(path, false)
+}
+
+func moveID3(path string) {
+	moveGeneric(path, true)
+}
+
+func moveGeneric(path string, useID3Tags bool) {
 	file := QueryFileByPath(path)
-	if file.ID == uuid.Nil && len(path) > 5 {
+	if file.ID == uuid.Nil || file.Deleted {
 		fmt.Printf("Cannot find in db: %v\n", path)
 		return
 	}
-	directory := file.ArtistAlbumDirectory()
-	if len(directory) == 0 {
-		fmt.Printf("Not enough ID tags %v\n", path)
+
+	var directory []string
+	if useID3Tags {
+		directory = file.ArtistAlbumDirectory()
+		if len(directory) == 0 {
+			fmt.Printf("Not enough ID tags %v\n", path)
+		}
+	} else {
+		fileDir := filepath.Dir(path)
+		previousDir := filepath.Dir(fileDir)
+		directory = append(directory, filepath.Base(previousDir), filepath.Base(fileDir))
 	}
 
-	targetDirectory := targetRootDirectory + strings.Join(directory, `/`)
-	targetFile := targetDirectory + `/` + file.Filename
+	targetDirectory := TargetRootDirectory + strings.Join(directory, `/`)
+	targetFile := targetDirectory + `/` + file.Filename + `.` + file.Extension
+
+	if DryRun {
+		fmt.Println("Moving to", targetFile)
+		return
+	}
 
 	err := os.MkdirAll(targetDirectory, 0755)
 	if err != nil {
 		fmt.Println("Error during making of directory", err)
 		os.Exit(1)
 	}
-	newFile, err := os.Create(targetFile)
-	if err != nil {
-		fmt.Println("error during file create", targetFile, err)
+
+	if path == targetFile {
+		fmt.Println("Nothing to do, target file is equal to existing location", targetFile)
+		return
 	}
-	newFile.Close()
+
+	err = os.Rename(path, targetFile)
+	if err != nil {
+		fmt.Println("error during move", targetFile, err)
+		os.Exit(1)
+	}
+	db := DBConnectionPool.Get()
+	db.Exec(context.Background(), "update files set path = $1 where id = $2", targetFile, file.ID)
+	DBConnectionPool.Release(db)
+
 }
 
 func execute(maxExecutioners int, executer Executioner) {
@@ -121,6 +161,7 @@ func NewExecuteCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&ExecuteFilePath, "path", "p", "", "Path to the file")
+	cmd.Flags().BoolVar(&DryRun, "dry-run", false, "do not perform the action, just print out some information for the action")
 	cmd.MarkFlagRequired("path")
 	cmd.Flags().StringVarP(&Action, "action", "a", "", "Action to perform on each line")
 	return cmd

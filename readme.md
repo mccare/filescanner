@@ -10,9 +10,7 @@ The scan phase will populate a postgres DB with
 * MD5 hash of only the music data (calculated by the ID3 library)
 
 
-# Usage
-
-## Setup
+# Setup
 
 * `brew install postgres`
 * create your files db
@@ -20,43 +18,42 @@ The scan phase will populate a postgres DB with
 * compile and 
 * `filescanner init`
 
-## Usage
+# Usage
 
-### Read in all files
+## Read in all files
 ```
 filescanner scan -p <path>
 ```
 Will populate the DB with the files and if necessary their MD5 and ID3 hashes. You need to run this twice (since the MD5 generation is lazy and only will be kicked of for the current file)
 
-### Scan the ID Tags
+## Scan the ID Tags
 ```
 filescanner scan -p <path> -s
 ```
-Will read and fill the ID tags. If they already have been scanned the file will be skipped.
+Will read the ID3 tags and update the databse. If they already have been scanned the file will be skipped.
 
-### Sync the DB with the Filesystem
+## Sync the DB with the Filesystem
 If you delete something on the filesystem, resync the db with
 ```
 filescanner scan -p <path> -c
 ```
 
-### Query and Move or delete
+## Finding duplicats by Query and then process (Move, delete)
 
-I queried the DB producing a list of filenames (paths), which I then executed actions on (e.g. delete them or move them)
+Finding duplicates is a multi stage manual process. See the sample SQL snippets below to get some ideas. Some outputs I used directly to move or delete, some outputs I checked before processing them.
+
+First, query the DB producing a list of filenames (paths). Then, use the resulting list of files and pass them to the execute command.
+
 * create a file query.txt with a select query for path names
 * run `filescanner query -p ./query.txt > /tmp/output`
 * inspect /tmp/output if this is a reasonable set of answers
 * run `filescanner execute -p /tmp/output -a unlink --dry-run` to e.g. remove all files 
 * edit execute.go to change the destination directory for moving commands
   * other actions are: 
-     * moveID3: put files into Artist/Album or _Compilation/Album, a bit heuristically what goes where
-     * movePath: just move the files with the last two path components to a different directory
+     * moveID3: put files into Artist/Album or _Compilation/Album, --dry-run will produce a list of target files
+     * movePath: just move the files with the last two path components to a different directory (e.g. for untagged files)
      * read (just show some ID3 tags for debugging)
 
-
-# Finding duplicates
-
-This is a manual process. Some SQL statements are below. First steps to automate some things are in query.go. You can delete/process files with execute.go. 
 
 # Tech I liked
 * Cobra for building the command line (http://github.com/spf13/cobra)
@@ -65,7 +62,7 @@ This is a manual process. Some SQL statements are below. First steps to automate
 * Concurrency with channels (see scan.go, and Bryan Mills at Gophercon 2018, https://www.youtube.com/watch?v=5zXAHh5tJqQ)
 * Connection Pool see db.go
 
- 
+
 # SQL Statements
 
 ## Helpful Views, other tidbits
@@ -84,7 +81,7 @@ This is a manual process. Some SQL statements are below. First steps to automate
 ## Find Duplicates 
 
 ### Find duplicates in different directories 
-    ```sql
+```sql
     select path 
       from music_files 
       where 
@@ -92,16 +89,16 @@ This is a manual process. Some SQL statements are below. First steps to automate
         and md5 in 
           (select md5 from music_files where path like '/Volumes/music/CVDL/%') 
         and md5 is not null
-    ```
+```
 ## Find duplicates in one directory
-    ```sql
+```sql
       select path, md5 
         from music_files 
         where 
           path like '/Users/chris/Music/%' 
           and md5 in (select md5 from music_files where path like '/Users/chris/Music/%'  group by md5 having count(id) > 1) 
         order by md5
-    ```
+```
     
 ## Find Missing files
   * Files with MD5
